@@ -155,28 +155,81 @@ const convertSpreadsheet = async (file: File, targetFormat: string, compressionS
   }
 };
 
+let ffmpegInstance: FFmpeg | null = null;
+let isFFmpegLoading = false;
+const ffmpegLoadingPromises: ((ffmpeg: FFmpeg) => void)[] = [];
+
+const getFFmpeg = async (): Promise<FFmpeg> => {
+  if (ffmpegInstance) {
+    return ffmpegInstance;
+  }
+
+  if (isFFmpegLoading) {
+    return new Promise((resolve) => {
+      ffmpegLoadingPromises.push(resolve);
+    });
+  }
+
+  isFFmpegLoading = true;
+  const ffmpeg = new FFmpeg();
+  
+  try {
+    await ffmpeg.load({
+      coreURL: '/ffmpeg-core.js',
+      wasmURL: '/ffmpeg-core.wasm',
+    });
+    ffmpegInstance = ffmpeg;
+    ffmpegLoadingPromises.forEach(resolve => resolve(ffmpeg));
+    ffmpegLoadingPromises.length = 0;
+    return ffmpeg;
+  } finally {
+    isFFmpegLoading = false;
+  }
+};
+
+const convertHeicToImage = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
+  const ffmpeg = await getFFmpeg();
+  const outputFormat = targetFormat.replace('.', '');
+  
+  try {
+    const fileData = await fetchFile(file);
+    await ffmpeg.writeFile('input.heic', fileData);
+    
+    // Convert HEIC to PNG first (better quality preservation)
+    await ffmpeg.exec(['-i', 'input.heic', 'output.png']);
+    
+    // If target is PNG, return directly
+    if (outputFormat === 'png') {
+      const data = await ffmpeg.readFile('output.png');
+      return new Blob([data], { type: 'image/png' });
+    }
+    
+    // Convert PNG to target format with quality settings
+    await ffmpeg.exec([
+      '-i', 'output.png',
+      '-quality', compressionSettings.quality ? Math.round(compressionSettings.quality * 100).toString() : '95',
+      `final.${outputFormat}`
+    ]);
+    
+    const data = await ffmpeg.readFile(`final.${outputFormat}`);
+    return new Blob([data], { type: `image/${outputFormat}` });
+  } finally {
+    // Clean up files but keep the instance
+    try {
+      await ffmpeg.deleteFile('input.heic');
+      await ffmpeg.deleteFile('output.png');
+      await ffmpeg.deleteFile(`final.${outputFormat}`);
+    } catch (error) {
+      console.warn('Error cleaning up FFmpeg files:', error);
+    }
+  }
+};
+
 const convertImage = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
   const extension = `.${getFileExtension(file.name)}`;
   
   if (extension === '.heic') {
-    const ffmpeg = new FFmpeg();
-    try {
-      await ffmpeg.load({
-        coreURL: '/ffmpeg-core.js',
-        wasmURL: '/ffmpeg-core.wasm',
-      });
-
-      const fileData = await fetchFile(file);
-      await ffmpeg.writeFile('input.heic', fileData);
-
-      const outputFormat = targetFormat.replace('.', '');
-      await ffmpeg.exec(['-i', 'input.heic', '-quality', '95', `output.${outputFormat}`]);
-      
-      const data = await ffmpeg.readFile(`output.${outputFormat}`);
-      return new Blob([data], { type: `image/${outputFormat}` });
-    } finally {
-      await ffmpeg.terminate();
-    }
+    return convertHeicToImage(file, targetFormat, compressionSettings);
   }
 
   return new Promise((resolve, reject) => {
@@ -199,15 +252,10 @@ const convertImage = async (file: File, targetFormat: string, compressionSetting
         canvas.width = width;
         canvas.height = height;
         
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
-        
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
         
-        const format = targetFormat.replace('.', '');
-        const quality = compressionSettings.quality;
+        const quality = compressionSettings.quality || 0.92;
+        const outputFormat = targetFormat.replace('.', '');
         
         canvas.toBlob(
           (blob) => {
@@ -217,28 +265,31 @@ const convertImage = async (file: File, targetFormat: string, compressionSetting
               reject(new Error('Failed to convert image'));
             }
           },
-          `image/${format}`,
+          `image/${outputFormat}`,
           quality
         );
       } catch (error) {
-        reject(new Error(`Image conversion failed: ${error.message}`));
+        reject(error);
       }
     };
     
-    img.onerror = () => reject(new Error('Failed to load image'));
+    img.onerror = () => {
+      reject(new Error('Failed to load image'));
+    };
+    
     img.src = URL.createObjectURL(file);
   });
 };
 
 const convertMedia = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
-  const ffmpeg = new FFmpeg();
+  const ffmpeg = await getFFmpeg();
   
   try {
     // Load FFmpeg with proper configuration
-    await ffmpeg.load({
-      coreURL: '/ffmpeg-core.js',
-      wasmURL: '/ffmpeg-core.wasm',
-    });
+    // await ffmpeg.load({
+    //   coreURL: '/ffmpeg-core.js',
+    //   wasmURL: '/ffmpeg-core.wasm',
+    // });
 
     const inputFormat = file.name.split('.').pop()?.toLowerCase();
     const outputFormat = targetFormat.replace('.', '');
@@ -271,7 +322,7 @@ const convertMedia = async (file: File, targetFormat: string, compressionSetting
     throw new Error(`Failed to convert media to ${targetFormat}: ${error.message}`);
   } finally {
     try {
-      await ffmpeg.terminate();
+      // await ffmpeg.terminate();
     } catch (error) {
       console.warn('Failed to terminate FFmpeg:', error);
     }
@@ -279,13 +330,13 @@ const convertMedia = async (file: File, targetFormat: string, compressionSetting
 };
 
 const convertVideoToImage = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
-  const ffmpeg = new FFmpeg();
+  const ffmpeg = await getFFmpeg();
   
   try {
-    await ffmpeg.load({
-      coreURL: '/ffmpeg-core.js',
-      wasmURL: '/ffmpeg-core.wasm',
-    });
+    // await ffmpeg.load({
+    //   coreURL: '/ffmpeg-core.js',
+    //   wasmURL: '/ffmpeg-core.wasm',
+    // });
 
     const fileData = await fetchFile(file);
     const inputFormat = getFileExtension(file.name);
@@ -313,7 +364,7 @@ const convertVideoToImage = async (file: File, targetFormat: string, compression
 
     return blob;
   } finally {
-    await ffmpeg.terminate();
+    // await ffmpeg.terminate();
   }
 };
 
@@ -382,18 +433,18 @@ export const getPreviewUrl = async (file: File): Promise<string> => {
   
   // For audio
   if (supportedFormats.audio.includes(extension)) {
-    return '/audio-icon.png'; // You'll need to add this icon to your public assets
+    return '/audio-icon.svg';
   }
   
   // For documents and spreadsheets
   if (supportedFormats.document.includes(extension)) {
-    return '/document-icon.png';
+    return '/document-icon.svg';
   }
   if (supportedFormats.spreadsheet.includes(extension)) {
-    return '/spreadsheet-icon.png';
+    return '/spreadsheet-icon.svg';
   }
   
-  return '/file-icon.png';
+  return '/file-icon.svg';
 };
 
 export const convertFile = async (
