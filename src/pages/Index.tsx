@@ -3,27 +3,42 @@ import FileUploadZone from '@/components/FileUploadZone';
 import FileCard from '@/components/FileCard';
 import ConversionProgress from '@/components/ConversionProgress';
 import { Button } from '@/components/ui/button';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from '@/hooks/use-toast';
-import { convertFile, getPossibleConversions, getFileExtension } from '@/utils/fileConversion';
+import { convertFile, getPossibleConversions } from '@/utils/fileConversion';
 
 const Index = () => {
   const [files, setFiles] = useState<File[]>([]);
   const [converting, setConverting] = useState(false);
   const [progress, setProgress] = useState<{ [key: string]: number }>({});
   const [targetFormat, setTargetFormat] = useState<string>('');
+  const [possibleFormats, setPossibleFormats] = useState<string[]>([]);
   const { toast } = useToast();
 
-  const handleFileSelect = (newFiles: File[]) => {
-    setFiles((prev) => [...prev, ...newFiles]);
-    toast({
-      title: 'Files added',
-      description: `Added ${newFiles.length} file(s) for conversion`,
-    });
+  const handleFileSelect = async (newFiles: File[]) => {
+    if (newFiles.length > 0) {
+      const formats = await getPossibleConversions(newFiles[0]);
+      setPossibleFormats(formats);
+      setFiles((prev) => [...prev, ...newFiles]);
+      toast({
+        title: 'Files added',
+        description: `Added ${newFiles.length} file(s) for conversion`,
+      });
+    }
   };
 
   const handleRemoveFile = (fileToRemove: File) => {
     setFiles((prev) => prev.filter((file) => file !== fileToRemove));
+    if (files.length <= 1) {
+      setPossibleFormats([]);
+      setTargetFormat('');
+    }
   };
 
   const handleConvert = async () => {
@@ -42,43 +57,40 @@ const Index = () => {
     try {
       await Promise.all(
         files.map(async (file) => {
-          const converted = await convertFile(file, targetFormat, (progress) => {
-            setProgress((prev) => ({
-              ...prev,
-              [file.name]: progress,
-            }));
-          });
+          try {
+            const converted = await convertFile(file, targetFormat, (progress) => {
+              setProgress((prev) => ({
+                ...prev,
+                [file.name]: progress,
+              }));
+            });
 
-          // In a real app, we would create a download link with the converted file
-          const url = URL.createObjectURL(converted);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `${file.name.split('.')[0]}${targetFormat}`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
+            const url = URL.createObjectURL(converted);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${file.name.split('.')[0]}${targetFormat}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            toast({
+              title: 'Success',
+              description: `Successfully converted ${file.name}`,
+            });
+          } catch (error) {
+            toast({
+              title: 'Error',
+              description: `Failed to convert ${file.name}`,
+              variant: 'destructive',
+            });
+          }
         })
       );
-
-      toast({
-        title: 'Success',
-        description: 'All files converted successfully',
-      });
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to convert some files',
-        variant: 'destructive',
-      });
     } finally {
       setConverting(false);
     }
   };
-
-  const possibleFormats = files.length > 0
-    ? getPossibleConversions(getFileExtension(files[0].name))
-    : [];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -109,18 +121,18 @@ const Index = () => {
                 <Select
                   value={targetFormat}
                   onValueChange={setTargetFormat}
-                  disabled={converting}
+                  disabled={converting || possibleFormats.length === 0}
                 >
-                  <Select.Trigger className="w-[200px]">
-                    <Select.Value placeholder="Select format" />
-                  </Select.Trigger>
-                  <Select.Content>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Select format" />
+                  </SelectTrigger>
+                  <SelectContent>
                     {possibleFormats.map((format) => (
-                      <Select.Item key={format} value={format}>
+                      <SelectItem key={format} value={format}>
                         {format}
-                      </Select.Item>
+                      </SelectItem>
                     ))}
-                  </Select.Content>
+                  </SelectContent>
                 </Select>
 
                 <Button
