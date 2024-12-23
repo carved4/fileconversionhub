@@ -194,6 +194,29 @@ const convertSpreadsheet = async (file: File, targetFormat: string): Promise<Blo
 };
 
 const convertImage = async (file: File, targetFormat: string): Promise<Blob> => {
+  const extension = `.${getFileExtension(file.name)}`;
+  
+  if (extension === '.heic') {
+    const ffmpeg = new FFmpeg();
+    try {
+      await ffmpeg.load({
+        coreURL: '/ffmpeg-core.js',
+        wasmURL: '/ffmpeg-core.wasm',
+      });
+
+      const fileData = await fetchFile(file);
+      await ffmpeg.writeFile('input.heic', fileData);
+
+      const outputFormat = targetFormat.replace('.', '');
+      await ffmpeg.exec(['-i', 'input.heic', '-quality', '95', `output.${outputFormat}`]);
+      
+      const data = await ffmpeg.readFile(`output.${outputFormat}`);
+      return new Blob([data], { type: `image/${outputFormat}` });
+    } finally {
+      await ffmpeg.terminate();
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
     const canvas = document.createElement('canvas');
@@ -201,8 +224,7 @@ const convertImage = async (file: File, targetFormat: string): Promise<Blob> => 
     
     img.onload = () => {
       try {
-        // Set canvas size maintaining aspect ratio
-        const maxSize = 4096; // Maximum size for browser compatibility
+        const maxSize = 4096;
         let width = img.width;
         let height = img.height;
         
@@ -215,11 +237,9 @@ const convertImage = async (file: File, targetFormat: string): Promise<Blob> => 
         canvas.width = width;
         canvas.height = height;
         
-        // Apply white background for images with transparency
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, width, height);
         
-        // Draw image with smoothing
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
