@@ -6,7 +6,7 @@ import mammoth from 'mammoth';
 import docx4js from 'docx4js';
 
 export const supportedFormats = {
-  document: ['.doc', '.docx', '.odt', '.rtf', '.txt'],
+  document: ['.docx', '.odt', '.rtf', '.txt'],
   spreadsheet: ['.xls', '.xlsx', '.csv'],
   image: ['.jpeg', '.jpg', '.png', '.gif', '.heic'],
   audio: ['.wav', '.mp3'],
@@ -36,60 +36,10 @@ const convertDocument = async (file: File, targetFormat: string): Promise<Blob> 
   let html: string;
   
   try {
-    const extension = `.${getFileExtension(file.name)}`;
-    
-    if (extension === '.docx') {
-      const { value } = await mammoth.convertToHtml({ arrayBuffer });
-      html = value;
-    } else {
-      const { value } = await mammoth.convertToHtml({ arrayBuffer });
-      html = value;
-    }
+    const { value } = await mammoth.convertToHtml({ arrayBuffer });
+    html = value;
     
     switch (targetFormat) {
-      case '.doc':
-        const docDoc = new Document({
-          sections: [{
-            properties: {},
-            children: html
-              .split(/<\/?p>/)
-              .filter(p => p.trim())
-              .map(p => {
-                const text = p.replace(/<[^>]*>/g, '').trim();
-                return new Paragraph({
-                  children: [
-                    new TextRun({
-                      text,
-                      font: 'Times New Roman',
-                      size: 24,
-                    }),
-                  ],
-                  spacing: {
-                    before: 240,
-                    after: 240,
-                    line: 360,
-                    lineRule: 'auto',
-                  },
-                });
-              }),
-          }],
-          styles: {
-            default: {
-              document: {
-                run: {
-                  font: 'Times New Roman',
-                  size: 24,
-                },
-              },
-            },
-          },
-        });
-
-        const docBuffer = await Packer.toBuffer(docDoc);
-        return new Blob([docBuffer], { 
-          type: 'application/msword',
-        });
-
       case '.docx':
         const docxDoc = new Document({
           sections: [{
