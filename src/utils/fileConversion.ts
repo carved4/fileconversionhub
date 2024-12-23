@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
-import sharp from 'sharp';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import { fileTypeFromBlob } from 'file-type';
@@ -70,13 +69,29 @@ const convertSpreadsheet = async (file: File, targetFormat: string): Promise<Blo
 };
 
 const convertImage = async (file: File, targetFormat: string): Promise<Blob> => {
-  const arrayBuffer = await file.arrayBuffer();
-  const image = sharp(Buffer.from(arrayBuffer));
-
-  const format = targetFormat.replace('.', '') as 'jpeg' | 'png' | 'gif';
-  const buffer = await image[format]().toBuffer();
-  
-  return new Blob([buffer], { type: `image/${format}` });
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx?.drawImage(img, 0, 0);
+      
+      const format = targetFormat.replace('.', '');
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Failed to convert image'));
+        }
+      }, `image/${format}`);
+    };
+    
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = URL.createObjectURL(file);
+  });
 };
 
 const convertMedia = async (file: File, targetFormat: string): Promise<Blob> => {
