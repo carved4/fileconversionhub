@@ -56,8 +56,8 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({ onFileSelect }) => {
         </div>
         <div className="flex flex-wrap justify-center gap-2 max-w-lg mx-auto">
           {Object.values({
-            Documents: ['.doc', '.docx', '.pdf'],
-            Images: ['.jpg', '.png', '.gif'],
+            Documents: ['.txt', '.docx', '.pdf'],
+            Images: ['.jpg', '.png', '.gif', '.img', '.jpeg', '.heic'],
             Audio: ['.mp3', '.wav'],
             Video: ['.mp4', '.mov'],
           }).map((formats, index) => (
