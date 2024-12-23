@@ -64,12 +64,31 @@ const convertDocument = async (file: File, targetFormat: string): Promise<Blob> 
                       size: 24,
                     }),
                   ],
+                  spacing: {
+                    before: 240,
+                    after: 240,
+                    line: 360,
+                    lineRule: 'auto',
+                  },
                 });
               }),
           }],
+          styles: {
+            default: {
+              document: {
+                run: {
+                  font: 'Times New Roman',
+                  size: 24,
+                },
+              },
+            },
+          },
         });
+
         const docBuffer = await Packer.toBuffer(docDoc);
-        return new Blob([docBuffer], { type: 'application/msword' });
+        return new Blob([docBuffer], { 
+          type: 'application/msword',
+        });
 
       case '.docx':
         const docxDoc = new Document({
