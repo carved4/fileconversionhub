@@ -33,9 +33,18 @@ export const getPossibleConversions = async (file: File): Promise<string[]> => {
 const convertDocument = async (file: File, targetFormat: string): Promise<Blob> => {
   const arrayBuffer = await file.arrayBuffer();
   let result: ArrayBuffer | string;
+  let html: string;
   
   try {
-    const { value: html } = await mammoth.convertToHtml({ arrayBuffer });
+    const extension = `.${getFileExtension(file.name)}`;
+    
+    if (extension === '.docx') {
+      const { value } = await mammoth.convertToHtml({ arrayBuffer });
+      html = value;
+    } else {
+      const { value } = await mammoth.convertToHtml({ arrayBuffer });
+      html = value;
+    }
     
     switch (targetFormat) {
       case '.doc':
