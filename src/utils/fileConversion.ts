@@ -35,44 +35,59 @@ const convertDocument = async (file: File, targetFormat: string): Promise<Blob> 
   let result: ArrayBuffer | string;
   
   try {
-    if (targetFormat === '.doc') {
-      // For .doc format, we'll convert to a simpler format that's compatible with older Word
-      const { value: html } = await mammoth.convertToHtml({ arrayBuffer });
-      
-      // Create a simplified DOC-compatible document
-      const doc = new Document({
-        sections: [{
-          properties: {},
-          children: html
-            .split(/<\/?p>/)
-            .filter(p => p.trim())
-            .map(p => {
-              const text = p.replace(/<[^>]*>/g, '').trim();
-              return new Paragraph({
-                children: [
-                  new TextRun({
-                    text,
-                    font: 'Times New Roman',
-                    size: 24, // 12pt
-                  }),
-                ],
-              });
-            }),
-        }],
-      });
-
-      // Pack it with minimal formatting to ensure DOC compatibility
-      const buffer = await Packer.toBuffer(doc);
-      return new Blob([buffer], { type: 'application/msword' });
-    }
-
-    // For other formats, use the existing HTML-based conversion
     const { value: html } = await mammoth.convertToHtml({ arrayBuffer });
     
-    // Then convert from HTML to target format
     switch (targetFormat) {
+      case '.doc':
+        const docDoc = new Document({
+          sections: [{
+            properties: {},
+            children: html
+              .split(/<\/?p>/)
+              .filter(p => p.trim())
+              .map(p => {
+                const text = p.replace(/<[^>]*>/g, '').trim();
+                return new Paragraph({
+                  children: [
+                    new TextRun({
+                      text,
+                      font: 'Times New Roman',
+                      size: 24,
+                    }),
+                  ],
+                });
+              }),
+          }],
+        });
+        const docBuffer = await Packer.toBuffer(docDoc);
+        return new Blob([docBuffer], { type: 'application/msword' });
+
+      case '.docx':
+        const docxDoc = new Document({
+          sections: [{
+            properties: {},
+            children: html
+              .split(/<\/?p>/)
+              .filter(p => p.trim())
+              .map(p => {
+                const text = p.replace(/<[^>]*>/g, '').trim();
+                return new Paragraph({
+                  children: [
+                    new TextRun({
+                      text,
+                      size: 24,
+                    }),
+                  ],
+                });
+              }),
+          }],
+        });
+        result = await Packer.toBuffer(docxDoc);
+        return new Blob([result], { 
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+        });
+
       case '.txt':
-        // Strip HTML tags for text while preserving line breaks
         result = html
           .replace(/<p>(.*?)<\/p>/g, '$1\n\n')
           .replace(/<br\/?>/g, '\n')
@@ -80,9 +95,8 @@ const convertDocument = async (file: File, targetFormat: string): Promise<Blob> 
           .replace(/\n{3,}/g, '\n\n')
           .trim();
         return new Blob([result], { type: 'text/plain' });
-        
+
       case '.rtf':
-        // Enhanced RTF conversion with better formatting
         const rtfHeader = '{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Times New Roman;}}\n';
         const rtfContent = html
           .replace(/<p>(.*?)<\/p>/g, '$1\\par\n')
@@ -94,38 +108,8 @@ const convertDocument = async (file: File, targetFormat: string): Promise<Blob> 
           .replace(/[\\{}]/g, '\\$&');
         result = rtfHeader + rtfContent + '}';
         return new Blob([result], { type: 'application/rtf' });
-        
-      case '.docx':
-        // Enhanced DOCX conversion with formatting
-        const paragraphs = html
-          .split(/<\/?p>/)
-          .filter(p => p.trim())
-          .map(p => {
-            const text = p.replace(/<[^>]*>/g, '').trim();
-            return new Paragraph({
-              children: [
-                new TextRun({
-                  text,
-                  size: 24, // 12pt
-                }),
-              ],
-            });
-          });
 
-        const doc = new Document({
-          sections: [{
-            properties: {},
-            children: paragraphs,
-          }],
-        });
-
-        result = await Packer.toBuffer(doc);
-        return new Blob([result], { 
-          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
-        });
-        
       case '.odt':
-        // Enhanced ODT conversion with proper structure
         const odtContent = `<?xml version="1.0" encoding="UTF-8"?>
           <office:document-content 
             xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -143,7 +127,7 @@ const convertDocument = async (file: File, targetFormat: string): Promise<Blob> 
             </office:body>
           </office:document-content>`;
         return new Blob([odtContent], { type: 'application/vnd.oasis.opendocument.text' });
-        
+
       default:
         throw new Error(`Unsupported target format: ${targetFormat}`);
     }
