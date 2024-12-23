@@ -1,7 +1,8 @@
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
 import sharp from 'sharp';
-import { createFFmpeg } from '@ffmpeg/ffmpeg';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile } from '@ffmpeg/util';
 import { fileTypeFromBlob } from 'file-type';
 
 export const supportedFormats = {
@@ -79,17 +80,19 @@ const convertImage = async (file: File, targetFormat: string): Promise<Blob> => 
 };
 
 const convertMedia = async (file: File, targetFormat: string): Promise<Blob> => {
-  const ffmpeg = createFFmpeg({ log: true });
+  const ffmpeg = new FFmpeg();
   await ffmpeg.load();
 
-  const arrayBuffer = await file.arrayBuffer();
-  ffmpeg.FS('writeFile', 'input', new Uint8Array(arrayBuffer));
+  const fileData = await fetchFile(file);
+  await ffmpeg.writeFile('input', fileData);
 
   const outputFormat = targetFormat.replace('.', '');
-  await ffmpeg.run('-i', 'input', `output.${outputFormat}`);
+  await ffmpeg.exec(['-i', 'input', `output.${outputFormat}`]);
   
-  const data = ffmpeg.FS('readFile', `output.${outputFormat}`);
-  return new Blob([data.buffer], { type: `audio/${outputFormat}` });
+  const data = await ffmpeg.readFile(`output.${outputFormat}`);
+  const mediaType = supportedFormats.audio.includes(targetFormat) ? 'audio' : 'video';
+  
+  return new Blob([data], { type: `${mediaType}/${outputFormat}` });
 };
 
 export const convertFile = async (
