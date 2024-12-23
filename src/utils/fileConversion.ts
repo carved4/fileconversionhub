@@ -278,6 +278,45 @@ const convertMedia = async (file: File, targetFormat: string, compressionSetting
   }
 };
 
+const convertVideoToImage = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
+  const ffmpeg = new FFmpeg();
+  
+  try {
+    await ffmpeg.load({
+      coreURL: '/ffmpeg-core.js',
+      wasmURL: '/ffmpeg-core.wasm',
+    });
+
+    const fileData = await fetchFile(file);
+    const inputFormat = getFileExtension(file.name);
+    await ffmpeg.writeFile(`input.${inputFormat}`, fileData);
+
+    // Extract first frame
+    await ffmpeg.exec([
+      '-i', `input.${inputFormat}`,
+      '-vframes', '1',
+      '-f', 'image2',
+      'output.png'
+    ]);
+
+    const data = await ffmpeg.readFile('output.png');
+    const blob = new Blob([data], { type: 'image/png' });
+
+    // If target format is not PNG, convert the extracted frame
+    if (targetFormat !== '.png') {
+      return await convertImage(
+        new File([blob], 'temp.png', { type: 'image/png' }),
+        targetFormat,
+        compressionSettings
+      );
+    }
+
+    return blob;
+  } finally {
+    await ffmpeg.terminate();
+  }
+};
+
 const getCompressionSettings = (targetFormat: string, level: 'none' | 'low' | 'medium' | 'high') => {
   const settings: Record<string, any> = {
     quality: 1.0,
@@ -311,6 +350,52 @@ const getCompressionSettings = (targetFormat: string, level: 'none' | 'low' | 'm
   return settings;
 };
 
+export const getPreviewUrl = async (file: File): Promise<string> => {
+  const extension = `.${getFileExtension(file.name)}`;
+  
+  // For images
+  if (supportedFormats.image.includes(extension)) {
+    return URL.createObjectURL(file);
+  }
+  
+  // For videos
+  if (supportedFormats.video.includes(extension)) {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        // Set to first frame
+        video.currentTime = 0;
+        video.onseeked = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0);
+          resolve(canvas.toDataURL('image/jpeg'));
+          URL.revokeObjectURL(video.src);
+        };
+      };
+      video.src = URL.createObjectURL(file);
+    });
+  }
+  
+  // For audio
+  if (supportedFormats.audio.includes(extension)) {
+    return '/audio-icon.png'; // You'll need to add this icon to your public assets
+  }
+  
+  // For documents and spreadsheets
+  if (supportedFormats.document.includes(extension)) {
+    return '/document-icon.png';
+  }
+  if (supportedFormats.spreadsheet.includes(extension)) {
+    return '/spreadsheet-icon.png';
+  }
+  
+  return '/file-icon.png';
+};
+
 export const convertFile = async (
   file: File,
   targetFormat: string,
@@ -332,6 +417,10 @@ export const convertFile = async (
       result = await convertSpreadsheet(file, targetFormat, compressionSettings);
     } else if (supportedFormats.image.includes(extension)) {
       result = await convertImage(file, targetFormat, compressionSettings);
+    } else if ((supportedFormats.video.includes(extension) || supportedFormats.audio.includes(extension)) && 
+               (targetFormat === '.png' || targetFormat === '.jpg' || targetFormat === '.jpeg')) {
+      // Handle video/audio to image conversion
+      result = await convertVideoToImage(file, targetFormat, compressionSettings);
     } else if (supportedFormats.audio.includes(extension) || supportedFormats.video.includes(extension)) {
       result = await convertMedia(file, targetFormat, compressionSettings);
     } else {
