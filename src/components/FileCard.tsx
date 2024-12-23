@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FileIcon, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface FileCardProps {
   file: File;
@@ -7,6 +9,22 @@ interface FileCardProps {
 }
 
 const FileCard: React.FC<FileCardProps> = ({ file, onRemove }) => {
+  const [showPreview, setShowPreview] = useState(false);
+  const [compressionLevel, setCompressionLevel] = useState<'none' | 'low' | 'medium' | 'high'>('none');
+  
+  const previewFile = () => {
+    if (file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file);
+      return (
+        <div className="mt-4">
+          <img src={url} alt={file.name} className="max-w-full h-auto rounded-lg" 
+            onLoad={() => URL.revokeObjectURL(url)} />
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="relative p-6 bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-lg border border-gray-100 group hover:shadow-xl transition-all duration-300 animate-fade-in">
       <button
@@ -33,6 +51,36 @@ const FileCard: React.FC<FileCardProps> = ({ file, onRemove }) => {
             </span>
           </div>
         </div>
+      </div>
+      
+      <div className="mt-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowPreview(!showPreview)}
+            className="text-xs"
+          >
+            {showPreview ? 'Hide Preview' : 'Show Preview'}
+          </Button>
+          
+          <Select
+            value={compressionLevel}
+            onValueChange={(value: 'none' | 'low' | 'medium' | 'high') => setCompressionLevel(value)}
+          >
+            <SelectTrigger className="w-[120px] h-8 text-xs">
+              <SelectValue placeholder="Compression" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No Compression</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        
+        {showPreview && previewFile()}
       </div>
     </div>
   );

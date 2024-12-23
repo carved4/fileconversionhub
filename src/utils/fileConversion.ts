@@ -30,7 +30,7 @@ export const getPossibleConversions = async (file: File): Promise<string[]> => {
   );
 };
 
-const convertDocument = async (file: File, targetFormat: string): Promise<Blob> => {
+const convertDocument = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
   const arrayBuffer = await file.arrayBuffer();
   let result: ArrayBuffer | string;
   let html: string;
@@ -115,7 +115,7 @@ const convertDocument = async (file: File, targetFormat: string): Promise<Blob> 
   }
 };
 
-const convertSpreadsheet = async (file: File, targetFormat: string): Promise<Blob> => {
+const convertSpreadsheet = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
   try {
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
@@ -141,7 +141,7 @@ const convertSpreadsheet = async (file: File, targetFormat: string): Promise<Blo
       bookType: targetFormat === '.xls' ? 'biff8' : 'xlsx',
       type: 'array',
       bookSST: false,
-      compression: true
+      compression: compressionSettings.compression
     });
     
     const mimeType = targetFormat === '.xls' 
@@ -155,7 +155,7 @@ const convertSpreadsheet = async (file: File, targetFormat: string): Promise<Blo
   }
 };
 
-const convertImage = async (file: File, targetFormat: string): Promise<Blob> => {
+const convertImage = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
   const extension = `.${getFileExtension(file.name)}`;
   
   if (extension === '.heic') {
@@ -207,7 +207,7 @@ const convertImage = async (file: File, targetFormat: string): Promise<Blob> => 
         ctx.drawImage(img, 0, 0, width, height);
         
         const format = targetFormat.replace('.', '');
-        const quality = format === 'jpg' || format === 'jpeg' ? 0.92 : undefined;
+        const quality = compressionSettings.quality;
         
         canvas.toBlob(
           (blob) => {
@@ -230,7 +230,7 @@ const convertImage = async (file: File, targetFormat: string): Promise<Blob> => 
   });
 };
 
-const convertMedia = async (file: File, targetFormat: string): Promise<Blob> => {
+const convertMedia = async (file: File, targetFormat: string, compressionSettings: Record<string, any>): Promise<Blob> => {
   const ffmpeg = new FFmpeg();
   
   try {
@@ -253,6 +253,11 @@ const convertMedia = async (file: File, targetFormat: string): Promise<Blob> => 
       ? ['-i', `input.${inputFormat}`, '-acodec', 'libmp3lame', '-q:a', '2', `output.${outputFormat}`]
       : ['-i', `input.${inputFormat}`, '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-c:a', 'aac', `output.${outputFormat}`];
     
+    // Apply compression settings
+    if (compressionSettings.videoBitrate) {
+      ffmpegArgs.splice(ffmpegArgs.indexOf('-c:v'), 0, '-b:v', compressionSettings.videoBitrate);
+    }
+    
     // Run conversion
     await ffmpeg.exec(ffmpegArgs);
     
@@ -273,10 +278,44 @@ const convertMedia = async (file: File, targetFormat: string): Promise<Blob> => 
   }
 };
 
+const getCompressionSettings = (targetFormat: string, level: 'none' | 'low' | 'medium' | 'high') => {
+  const settings: Record<string, any> = {
+    quality: 1.0,
+    compression: false,
+  };
+
+  switch (level) {
+    case 'low':
+      settings.quality = 0.9;
+      settings.compression = true;
+      break;
+    case 'medium':
+      settings.quality = 0.75;
+      settings.compression = true;
+      break;
+    case 'high':
+      settings.quality = 0.6;
+      settings.compression = true;
+      break;
+  }
+
+  // Format-specific adjustments
+  if (targetFormat === '.jpg' || targetFormat === '.jpeg') {
+    settings.quality = Math.max(0.5, settings.quality);
+  } else if (targetFormat === '.mp4') {
+    settings.videoBitrate = level === 'none' ? '4M' :
+                           level === 'low' ? '2M' :
+                           level === 'medium' ? '1M' : '800k';
+  }
+
+  return settings;
+};
+
 export const convertFile = async (
   file: File,
   targetFormat: string,
-  onProgress: (progress: number) => void
+  onProgress: (progress: number) => void,
+  compressionLevel: 'none' | 'low' | 'medium' | 'high' = 'none'
 ): Promise<Blob> => {
   const extension = `.${getFileExtension(file.name)}`;
   let result: Blob;
@@ -284,14 +323,17 @@ export const convertFile = async (
   try {
     onProgress(10);
 
+    // Apply compression settings based on file type and compression level
+    const compressionSettings = getCompressionSettings(targetFormat, compressionLevel);
+
     if (supportedFormats.document.includes(extension)) {
-      result = await convertDocument(file, targetFormat);
+      result = await convertDocument(file, targetFormat, compressionSettings);
     } else if (supportedFormats.spreadsheet.includes(extension)) {
-      result = await convertSpreadsheet(file, targetFormat);
+      result = await convertSpreadsheet(file, targetFormat, compressionSettings);
     } else if (supportedFormats.image.includes(extension)) {
-      result = await convertImage(file, targetFormat);
+      result = await convertImage(file, targetFormat, compressionSettings);
     } else if (supportedFormats.audio.includes(extension) || supportedFormats.video.includes(extension)) {
-      result = await convertMedia(file, targetFormat);
+      result = await convertMedia(file, targetFormat, compressionSettings);
     } else {
       throw new Error('Unsupported conversion');
     }

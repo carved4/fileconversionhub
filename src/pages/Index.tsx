@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from '@/hooks/use-toast';
 import { convertFile, getPossibleConversions } from '@/utils/fileConversion';
+import { downloadBatch } from '@/utils/batchDownload';
 import { ArrowRight, Sparkles } from 'lucide-react';
 
 const Index = () => {
@@ -52,8 +53,21 @@ const Index = () => {
       return;
     }
 
+    if (files.length === 0) {
+      toast({
+        title: 'Error',
+        description: 'Please add files to convert',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setConverting(true);
     setProgress({});
+
+    const convertedFiles: Blob[] = [];
+    const convertedFilenames: string[] = [];
+    let hasError = false;
 
     try {
       await Promise.all(
@@ -65,21 +79,11 @@ const Index = () => {
                 [file.name]: progress,
               }));
             });
-
-            const url = URL.createObjectURL(converted);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${file.name.split('.')[0]}${targetFormat}`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-
-            toast({
-              title: 'Success',
-              description: `Successfully converted ${file.name}`,
-            });
+            
+            convertedFiles.push(converted);
+            convertedFilenames.push(`${file.name.split('.')[0]}${targetFormat}`);
           } catch (error) {
+            hasError = true;
             toast({
               title: 'Error',
               description: `Failed to convert ${file.name}`,
@@ -88,8 +92,35 @@ const Index = () => {
           }
         })
       );
+
+      if (convertedFiles.length > 0) {
+        if (convertedFiles.length === 1) {
+          // Single file - download directly
+          const url = URL.createObjectURL(convertedFiles[0]);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = convertedFilenames[0];
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        } else {
+          // Multiple files - create zip
+          await downloadBatch(convertedFiles, convertedFilenames);
+        }
+
+        toast({
+          title: 'Success',
+          description: `Successfully converted ${convertedFiles.length} file(s)`,
+        });
+      }
     } finally {
       setConverting(false);
+      if (!hasError && convertedFiles.length === files.length) {
+        setFiles([]); // Clear files after successful conversion
+        setPossibleFormats([]);
+        setTargetFormat('');
+      }
     }
   };
 
